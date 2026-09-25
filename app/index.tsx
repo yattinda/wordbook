@@ -1,0 +1,301 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  FlatList,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { Link, router, useFocusEffect } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
+
+import { listPosValues, listWords } from "../src/db";
+import { loadFilters, saveFilters } from "../src/storage";
+import { colors } from "../src/theme";
+import {
+  APP_BANDS,
+  CEFR_LEVELS,
+  DOMAINS,
+  defaultFilters,
+  type Filters,
+  type WordListItem,
+} from "../src/types";
+
+const PAGE = 80;
+
+function Chip({
+  label,
+  selected,
+  onPress,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable onPress={onPress} style={[styles.chip, selected && styles.chipOn]}>
+      <Text style={[styles.chipText, selected && styles.chipOnText]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function toggle(values: string[], value: string): string[] {
+  return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
+}
+
+function firstGloss(text: string | null): string {
+  if (!text) return "";
+  return text.split(/[；;]/)[0]?.trim() ?? "";
+}
+
+function formatIpa(ipa: string | null): string | null {
+  if (!ipa) return null;
+  const trimmed = ipa.trim();
+  if (trimmed.startsWith("/")) return trimmed;
+  return `/${trimmed}/`;
+}
+
+export default function ListScreen() {
+  const [filters, setFilters] = useState<Filters>(defaultFilters());
+  const [items, setItems] = useState<WordListItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [posOptions, setPosOptions] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      loadFilters().then((stored) => {
+        if (alive) {
+          setFilters((current) => ({ ...stored, query: current.query }));
+        }
+      });
+      return () => {
+        alive = false;
+      };
+    }, [])
+  );
+
+  useEffect(() => {
+    listPosValues()
+      .then(setPosOptions)
+      .catch(() => setPosOptions([]));
+  }, []);
+
+  const load = useCallback(async (next: Filters, offset = 0, append = false) => {
+    if (append) setLoadingMore(true);
+    else setLoading(true);
+    setError(null);
+    try {
+      const result = await listWords(next, PAGE, offset);
+      setTotal(result.total);
+      setItems((prev) => (append ? [...prev, ...result.items] : result.items));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "データの読み込みに失敗しました");
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      load(filters, 0, false);
+    }, filters.query ? 200 : 0);
+    return () => clearTimeout(handle);
+  }, [filters, load]);
+
+  const updateFilters = (patch: Partial<Filters>) => {
+    setFilters((current) => {
+      const next = { ...current, ...patch };
+      void saveFilters(next);
+      return next;
+    });
+  };
+
+  const filterSummary = useMemo(() => {
+    const parts = [
+      filters.bands.length ? `band ${filters.bands.join("/")}` : "全band",
+      filters.domains.length ? filters.domains.join("/") : null,
+      filters.cefr.length ? filters.cefr.join("/") : null,
+      filters.pos.length ? filters.pos.join("/") : null,
+    ].filter(Boolean);
+    return parts.join(" · ");
+  }, [filters]);
+
+  return (
+    <SafeAreaView style={styles.safe} edges={["bottom"]}>
+      <View style={styles.searchRow}>
+        <TextInput
+          value={filters.query}
+          onChangeText={(query) => updateFilters({ query })}
+          placeholder="単語・日本語・定義で検索"
+          placeholderTextColor={colors.muted}
+          autoCapitalize="none"
+          autoCorrect={false}
+          style={styles.search}
+        />
+        <Link href="/settings" asChild>
+          <Pressable style={styles.iconBtn}>
+            <Text style={styles.iconBtnText}>設定</Text>
+          </Pressable>
+        </Link>
+      </View>
+      <Pressable onPress={() => setShowFilters((value) => !value)} style={styles.summary}>
+        <Text style={styles.summaryText}>
+          {total.toLocaleString()} 語 · {filterSummary}
+        </Text>
+        <Text style={styles.summaryToggle}>{showFilters ? "閉じる" : "絞り込み"}</Text>
+      </Pressable>
+      {showFilters ? (
+        <View style={styles.filters}>
+          <Text style={styles.filterLabel}>学習バンド（TOEIC ~760 は review を外す）</Text>
+          <View style={styles.chipRow}>
+            {APP_BANDS.map((band) => (
+              <Chip
+                key={band}
+                label={band}
+                selected={filters.bands.includes(band)}
+                onPress={() => updateFilters({ bands: toggle(filters.bands, band) })}
+              />
+            ))}
+          </View>
+          <Text style={styles.filterLabel}>CEFR</Text>
+          <View style={styles.chipRow}>
+            {CEFR_LEVELS.map((level) => (
+              <Chip
+                key={level}
+                label={level}
+                selected={filters.cefr.includes(level)}
+                onPress={() => updateFilters({ cefr: toggle(filters.cefr, level) })}
+              />
+            ))}
+          </View>
+          <Text style={styles.filterLabel}>ドメイン</Text>
+          <View style={styles.chipRow}>
+            {DOMAINS.map((domain) => (
+              <Chip
+                key={domain}
+                label={domain}
+                selected={filters.domains.includes(domain)}
+                onPress={() => updateFilters({ domains: toggle(filters.domains, domain) })}
+              />
+            ))}
+          </View>
+          <Text style={styles.filterLabel}>品詞</Text>
+          <View style={styles.chipRow}>
+            {posOptions.map((pos) => (
+              <Chip
+                key={pos}
+                label={pos}
+                selected={filters.pos.includes(pos)}
+                onPress={() => updateFilters({ pos: toggle(filters.pos, pos) })}
+              />
+            ))}
+          </View>
+        </View>
+      ) : null}
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {loading && items.length === 0 ? (
+        <ActivityIndicator color={colors.accent} style={styles.spinner} />
+      ) : (
+        <FlatList
+          data={items}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.list}
+          onEndReachedThreshold={0.4}
+          onEndReached={() => {
+            if (!loadingMore && items.length < total) {
+              void load(filters, items.length, true);
+            }
+          }}
+          ListEmptyComponent={<Text style={styles.empty}>該当する単語がありません</Text>}
+          ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.accent} /> : null}
+          renderItem={({ item }) => (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`${item.lemma} ${item.pos}`}
+              style={styles.card}
+              onPress={() => router.push({ pathname: "/word/[id]", params: { id: item.id } })}
+            >
+              <View style={styles.cardTop}>
+                <Text style={styles.lemma}>{item.lemma}</Text>
+                <Text style={styles.pos}>{item.pos}</Text>
+              </View>
+              <Text style={styles.meta}>
+                {[item.cefr, item.app_band, formatIpa(item.ipa)].filter(Boolean).join("  ·  ")}
+              </Text>
+              <Text style={styles.gloss} numberOfLines={2}>
+                {firstGloss(item.gloss_ja) || firstGloss(item.gloss_en) || "（訳なし）"}
+              </Text>
+            </Pressable>
+          )}
+        />
+      )}
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: colors.bg },
+  searchRow: { flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingTop: 8 },
+  search: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.line,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 16,
+    color: colors.ink,
+  },
+  iconBtn: {
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: colors.accentSoft,
+  },
+  iconBtnText: { color: colors.accent, fontWeight: "600" },
+  summary: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  summaryText: { color: colors.muted, flex: 1, paddingRight: 8 },
+  summaryToggle: { color: colors.accent, fontWeight: "600" },
+  filters: { paddingHorizontal: 16, paddingBottom: 8 },
+  filterLabel: { color: colors.muted, marginTop: 8, marginBottom: 6, fontSize: 12 },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  chip: {
+    backgroundColor: colors.chip,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  chipOn: { backgroundColor: colors.chipOn },
+  chipText: { color: colors.ink, fontSize: 13 },
+  chipOnText: { color: colors.chipOnText },
+  list: { padding: 16, paddingBottom: 40, gap: 10 },
+  card: {
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  cardTop: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" },
+  lemma: { fontSize: 22, fontWeight: "700", color: colors.ink, flex: 1, paddingRight: 8 },
+  pos: { color: colors.accent, fontWeight: "600" },
+  meta: { color: colors.muted, marginTop: 4 },
+  gloss: { color: colors.ink, marginTop: 8, fontSize: 15, lineHeight: 22 },
+  empty: { textAlign: "center", color: colors.muted, marginTop: 40 },
+  spinner: { marginTop: 40 },
+  error: { color: "#9B2C2C", paddingHorizontal: 16 },
+});
