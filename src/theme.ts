@@ -1,0 +1,16 @@
+export const colors = {
+  bg: "#F4F1EA",
+  card: "#FFFcf7",
+  ink: "#1F2A2E",
+  muted: "#5C6B73",
+  line: "#E2D9C8",
+  accent: "#2F6F6A",
+  accentSoft: "#D7EBE8",
+  chip: "#EFE7D8",
+  chipOn: "#2F6F6A",
+  chipOnText: "#FFFFFF",
+  review: "#8A6A4F",
+  core: "#2F6F6A",
+  upper: "#3D5A80",
+  advanced: "#6B4C7A",
+};
