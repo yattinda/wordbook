@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 
+import { AppText } from "../src/AppText";
 import { loadAttribution } from "../src/db";
 import { loadFilters, saveFilters } from "../src/storage";
 import { colors } from "../src/theme";
+import { bold, semibold } from "../src/typography";
 import { APP_BANDS, DEFAULT_BANDS, defaultFilters, type Filters } from "../src/types";
 
 export default function SettingsScreen() {
@@ -25,32 +27,32 @@ export default function SettingsScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
-      <Text style={styles.heading}>学習レベル</Text>
-      <Text style={styles.lead}>
+      <AppText style={styles.heading}>学習レベル</AppText>
+      <AppText style={styles.lead}>
         TOEIC 760 前後向けの既定は core / upper / advanced です。A1・A2（review）は含めません。
-      </Text>
+      </AppText>
       <View style={styles.row}>
         <Pressable style={styles.btn} onPress={() => applyPreset([...DEFAULT_BANDS])}>
-          <Text style={styles.btnText}>TOEIC ~760</Text>
+          <AppText style={styles.btnText}>TOEIC ~760</AppText>
         </Pressable>
         <Pressable style={styles.btn} onPress={() => applyPreset([...APP_BANDS])}>
-          <Text style={styles.btnText}>すべて</Text>
+          <AppText style={styles.btnText}>すべて</AppText>
         </Pressable>
         <Pressable style={styles.btn} onPress={() => applyPreset(["upper", "advanced"])}>
-          <Text style={styles.btnText}>上級寄り</Text>
+          <AppText style={styles.btnText}>上級寄り</AppText>
         </Pressable>
       </View>
-      <Text style={styles.current}>現在: {filters.bands.join(", ") || "指定なし"}</Text>
+      <AppText style={styles.current}>現在: {filters.bands.join(", ") || "指定なし"}</AppText>
 
-      <Text style={styles.heading}>ライセンス / クレジット</Text>
-      <Text style={styles.body}>{attribution}</Text>
+      <AppText style={styles.heading}>ライセンス / クレジット</AppText>
+      <AppText style={styles.body}>{attribution}</AppText>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   page: { padding: 20, paddingBottom: 48 },
-  heading: { fontSize: 18, fontWeight: "700", color: colors.ink, marginBottom: 8 },
+  heading: { fontSize: 18, ...bold, color: colors.ink, marginBottom: 8 },
   lead: { color: colors.muted, lineHeight: 22, marginBottom: 12 },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
   btn: {
@@ -59,7 +61,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
-  btnText: { color: "#fff", fontWeight: "600" },
+  btnText: { color: "#fff", ...semibold },
   current: { color: colors.ink, marginBottom: 24 },
   body: { color: colors.ink, lineHeight: 22, fontSize: 13 },
 });
