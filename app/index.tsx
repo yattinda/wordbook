@@ -1,19 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  ActivityIndicator,
-  FlatList,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, View } from "react-native";
 import { Link, router, useFocusEffect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { listPosValues, listWords } from "../src/db";
+import { listPosValues, listSpreadPage, listWords } from "../src/db";
+import { freshSpreadCursor, type SpreadCursor } from "../src/spread";
 import { loadFilters, saveFilters } from "../src/storage";
+import { AppText, AppTextInput } from "../src/AppText";
 import { colors } from "../src/theme";
+import { bold, jaBody, semibold } from "../src/typography";
 import {
   APP_BANDS,
   CEFR_LEVELS,
@@ -36,7 +31,7 @@ function Chip({
 }) {
   return (
     <Pressable onPress={onPress} style={[styles.chip, selected && styles.chipOn]}>
-      <Text style={[styles.chipText, selected && styles.chipOnText]}>{label}</Text>
+      <AppText style={[styles.chipText, selected && styles.chipOnText]}>{label}</AppText>
     </Pressable>
   );
 }
@@ -64,8 +59,13 @@ export default function ListScreen() {
   const [posOptions, setPosOptions] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const spreadRef = useRef<SpreadCursor>(freshSpreadCursor());
+  const spreadSeedRef = useRef(1);
+  const requestRef = useRef(0);
+  const pagingRef = useRef(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -88,18 +88,42 @@ export default function ListScreen() {
   }, []);
 
   const load = useCallback(async (next: Filters, offset = 0, append = false) => {
+    if (append && pagingRef.current) return;
+    pagingRef.current = true;
+    const requestId = ++requestRef.current;
     if (append) setLoadingMore(true);
     else setLoading(true);
     setError(null);
+    const browsing = next.query.trim().length === 0;
+    if (browsing && !append) {
+      spreadSeedRef.current = (Math.floor(Math.random() * 0x7fffffff) + 1) >>> 0;
+      spreadRef.current = freshSpreadCursor();
+    }
     try {
-      const result = await listWords(next, PAGE, offset);
-      setTotal(result.total);
-      setItems((prev) => (append ? [...prev, ...result.items] : result.items));
+      if (browsing) {
+        const result = await listSpreadPage(next, spreadRef.current, spreadSeedRef.current);
+        if (requestId !== requestRef.current) return;
+        spreadRef.current = result.cursor;
+        setTotal(result.total);
+        setHasMore(result.hasMore);
+        setItems((prev) => (append ? [...prev, ...result.items] : result.items));
+      } else {
+        const result = await listWords(next, PAGE, offset);
+        if (requestId !== requestRef.current) return;
+        const loaded = (append ? offset : 0) + result.items.length;
+        setTotal(result.total);
+        setHasMore(loaded < result.total);
+        setItems((prev) => (append ? [...prev, ...result.items] : result.items));
+      }
     } catch (err) {
+      if (requestId !== requestRef.current) return;
       setError(err instanceof Error ? err.message : "データの読み込みに失敗しました");
     } finally {
-      setLoading(false);
-      setLoadingMore(false);
+      if (requestId === requestRef.current) {
+        pagingRef.current = false;
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
   }, []);
 
@@ -131,7 +155,7 @@ export default function ListScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={["bottom"]}>
       <View style={styles.searchRow}>
-        <TextInput
+        <AppTextInput
           value={filters.query}
           onChangeText={(query) => updateFilters({ query })}
           placeholder="単語・日本語・定義で検索"
@@ -142,19 +166,19 @@ export default function ListScreen() {
         />
         <Link href="/settings" asChild>
           <Pressable style={styles.iconBtn}>
-            <Text style={styles.iconBtnText}>設定</Text>
+            <AppText style={styles.iconBtnText}>設定</AppText>
           </Pressable>
         </Link>
       </View>
       <Pressable onPress={() => setShowFilters((value) => !value)} style={styles.summary}>
-        <Text style={styles.summaryText}>
+        <AppText style={styles.summaryText}>
           {total.toLocaleString()} 語 · {filterSummary}
-        </Text>
-        <Text style={styles.summaryToggle}>{showFilters ? "閉じる" : "絞り込み"}</Text>
+        </AppText>
+        <AppText style={styles.summaryToggle}>{showFilters ? "閉じる" : "絞り込み"}</AppText>
       </Pressable>
       {showFilters ? (
         <View style={styles.filters}>
-          <Text style={styles.filterLabel}>学習バンド（TOEIC ~760 は review を外す）</Text>
+          <AppText style={styles.filterLabel}>学習バンド（TOEIC ~760 は review を外す）</AppText>
           <View style={styles.chipRow}>
             {APP_BANDS.map((band) => (
               <Chip
@@ -165,7 +189,7 @@ export default function ListScreen() {
               />
             ))}
           </View>
-          <Text style={styles.filterLabel}>CEFR</Text>
+          <AppText style={styles.filterLabel}>CEFR</AppText>
           <View style={styles.chipRow}>
             {CEFR_LEVELS.map((level) => (
               <Chip
@@ -176,7 +200,7 @@ export default function ListScreen() {
               />
             ))}
           </View>
-          <Text style={styles.filterLabel}>ドメイン</Text>
+          <AppText style={styles.filterLabel}>ドメイン</AppText>
           <View style={styles.chipRow}>
             {DOMAINS.map((domain) => (
               <Chip
@@ -187,7 +211,7 @@ export default function ListScreen() {
               />
             ))}
           </View>
-          <Text style={styles.filterLabel}>品詞</Text>
+          <AppText style={styles.filterLabel}>品詞</AppText>
           <View style={styles.chipRow}>
             {posOptions.map((pos) => (
               <Chip
@@ -200,7 +224,7 @@ export default function ListScreen() {
           </View>
         </View>
       ) : null}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? <AppText style={styles.error}>{error}</AppText> : null}
       {loading && items.length === 0 ? (
         <ActivityIndicator color={colors.accent} style={styles.spinner} />
       ) : (
@@ -210,11 +234,11 @@ export default function ListScreen() {
           contentContainerStyle={styles.list}
           onEndReachedThreshold={0.4}
           onEndReached={() => {
-            if (!loadingMore && items.length < total) {
+            if (!loadingMore && hasMore && items.length < total) {
               void load(filters, items.length, true);
             }
           }}
-          ListEmptyComponent={<Text style={styles.empty}>該当する単語がありません</Text>}
+          ListEmptyComponent={<AppText style={styles.empty}>該当する単語がありません</AppText>}
           ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.accent} /> : null}
           renderItem={({ item }) => (
             <Pressable
@@ -224,15 +248,15 @@ export default function ListScreen() {
               onPress={() => router.push({ pathname: "/word/[id]", params: { id: item.id } })}
             >
               <View style={styles.cardTop}>
-                <Text style={styles.lemma}>{item.lemma}</Text>
-                <Text style={styles.pos}>{item.pos}</Text>
+                <AppText style={styles.lemma}>{item.lemma}</AppText>
+                <AppText style={styles.pos}>{item.pos}</AppText>
               </View>
-              <Text style={styles.meta}>
+              <AppText style={styles.meta}>
                 {[item.cefr, item.app_band, formatIpa(item.ipa)].filter(Boolean).join("  ·  ")}
-              </Text>
-              <Text style={styles.gloss} numberOfLines={2}>
+              </AppText>
+              <AppText style={styles.gloss} numberOfLines={2}>
                 {firstGloss(item.gloss_ja) || firstGloss(item.gloss_en) || "（訳なし）"}
-              </Text>
+              </AppText>
             </Pressable>
           )}
         />
@@ -261,7 +285,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: colors.accentSoft,
   },
-  iconBtnText: { color: colors.accent, fontWeight: "600" },
+  iconBtnText: { color: colors.accent, ...semibold },
   summary: {
     paddingHorizontal: 16,
     paddingVertical: 10,
@@ -269,7 +293,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   summaryText: { color: colors.muted, flex: 1, paddingRight: 8 },
-  summaryToggle: { color: colors.accent, fontWeight: "600" },
+  summaryToggle: { color: colors.accent, ...semibold },
   filters: { paddingHorizontal: 16, paddingBottom: 8 },
   filterLabel: { color: colors.muted, marginTop: 8, marginBottom: 6, fontSize: 12 },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
@@ -291,10 +315,10 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
   },
   cardTop: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" },
-  lemma: { fontSize: 22, fontWeight: "700", color: colors.ink, flex: 1, paddingRight: 8 },
-  pos: { color: colors.accent, fontWeight: "600" },
+  lemma: { fontSize: 22, ...bold, color: colors.ink, flex: 1, paddingRight: 8 },
+  pos: { color: colors.accent, ...semibold },
   meta: { color: colors.muted, marginTop: 4 },
-  gloss: { color: colors.ink, marginTop: 8, fontSize: 15, lineHeight: 22 },
+  gloss: { color: colors.ink, marginTop: 8, fontSize: 15, lineHeight: 22, ...jaBody },
   empty: { textAlign: "center", color: colors.muted, marginTop: 40 },
   spinner: { marginTop: 40 },
   error: { color: "#9B2C2C", paddingHorizontal: 16 },
