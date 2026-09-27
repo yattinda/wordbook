@@ -2,11 +2,40 @@ import * as SQLite from "expo-sqlite";
 
 import type { Filters, Neighbor, WordDetail, WordListItem } from "./types";
 import { ATTRIBUTION } from "./generated/attribution";
-import { buildWordListSql } from "./filters";
+import { buildWordListSql, type LemmaBound } from "./filters";
+import {
+  SPREAD_BUCKETS,
+  SPREAD_PAGE,
+  headBounds,
+  headOffset,
+  mixSpreadPage,
+  type SpreadCursor,
+} from "./spread";
 
 const DB_NAME = "wordbook.db";
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
+let ftsAvailablePromise: Promise<boolean> | null = null;
+
+async function canUseFtsSearch(): Promise<boolean> {
+  if (!ftsAvailablePromise) {
+    ftsAvailablePromise = (async () => {
+      try {
+        const db = await getDb();
+        await db.getFirstAsync("SELECT 1 FROM word_fts LIMIT 1");
+        return true;
+      } catch {
+        return false;
+      }
+    })();
+  }
+  return ftsAvailablePromise;
+}
+
+async function listSqlOptions(bound?: LemmaBound) {
+  const fts = await canUseFtsSearch();
+  return bound ? { bound, fts } : { fts };
+}
 
 function parseJson<T>(value: string | null, fallback: T): T {
   if (!value) return fallback;
@@ -50,10 +79,92 @@ export async function listWords(
   offset = 0
 ): Promise<{ items: WordListItem[]; total: number }> {
   const db = await getDb();
-  const { sql, countSql, params, countParams } = buildWordListSql(filters, limit, offset);
+  const { sql, countSql, params, countParams } = buildWordListSql(
+    filters,
+    limit,
+    offset,
+    await listSqlOptions(),
+  );
   const rows = await db.getAllAsync<Record<string, unknown>>(sql, params);
   const countRow = await db.getFirstAsync<{ n: number }>(countSql, countParams);
   return { items: rows.map(mapListItem), total: countRow?.n ?? 0 };
+}
+
+export async function listSpreadPage(
+  filters: Filters,
+  cursor: SpreadCursor,
+  seed: number,
+): Promise<{ items: WordListItem[]; total: number; cursor: SpreadCursor; hasMore: boolean }> {
+  const db = await getDb();
+  const sqlOpts = await listSqlOptions();
+  const { countSql, countParams } = buildWordListSql(filters, 1, 0, sqlOpts);
+  const countRow = await db.getFirstAsync<{ n: number }>(countSql, countParams);
+
+  const offsets = cursor.offsets.slice();
+  const open = cursor.open.slice();
+  const skipIds = cursor.skipIds.slice();
+  let head: WordListItem[] = [];
+
+  if (!cursor.headed) {
+    const bounds = headBounds(seed);
+    for (let index = 0; index < bounds.length; index++) {
+      const picked = await readSpreadSlice(db, filters, sqlOpts, bounds[index], 1, headOffset(seed, index), skipIds);
+      const item = picked[0] ?? (await readSpreadSlice(db, filters, sqlOpts, bounds[index], 1, 0, skipIds))[0];
+      if (!item) continue;
+      head.push(item);
+      skipIds.push(item.id);
+    }
+    head = mixSpreadPage([head], seed ^ 0x51ed);
+  }
+
+  const columns: WordListItem[][] = [];
+  const active = cursor.open.filter(Boolean).length || 1;
+  const limit = Math.max(1, Math.ceil((SPREAD_PAGE - head.length) / active));
+
+  for (let index = 0; index < SPREAD_BUCKETS.length; index++) {
+    const bucket = SPREAD_BUCKETS[index];
+    if (!cursor.open[index]) {
+      columns.push([]);
+      continue;
+    }
+    const items = await readSpreadSlice(
+      db,
+      filters,
+      sqlOpts,
+      bucket,
+      limit,
+      cursor.offsets[index],
+      skipIds,
+    );
+    offsets[index] = cursor.offsets[index] + items.length;
+    if (items.length < limit) open[index] = false;
+    columns.push(items);
+  }
+
+  return {
+    items: [...head, ...mixSpreadPage(columns, seed + cursor.offsets[0])],
+    total: countRow?.n ?? 0,
+    cursor: { offsets, open, skipIds, headed: true },
+    hasMore: open.some(Boolean),
+  };
+}
+
+async function readSpreadSlice(
+  db: SQLite.SQLiteDatabase,
+  filters: Filters,
+  sqlOpts: { fts: boolean },
+  bound: LemmaBound,
+  limit: number,
+  offset: number,
+  excludeIds: string[],
+): Promise<WordListItem[]> {
+  const { sql, params } = buildWordListSql(filters, limit, offset, {
+    ...sqlOpts,
+    bound,
+    excludeIds,
+  });
+  const rows = await db.getAllAsync<Record<string, unknown>>(sql, params);
+  return rows.map(mapListItem);
 }
 
 export async function getWord(id: string): Promise<WordDetail | null> {
