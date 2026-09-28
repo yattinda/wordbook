@@ -4,6 +4,7 @@ import { router, useLocalSearchParams } from "expo-router";
 
 import { getNeighbors, getWord } from "../../src/db";
 import { AppText } from "../../src/AppText";
+import { formatPronunciations, posLabel } from "../../src/labels";
 import { colors } from "../../src/theme";
 import { bold, extraBold, jaBody, semibold } from "../../src/typography";
 import type { Neighbor, WordDetail } from "../../src/types";
@@ -38,36 +39,27 @@ export default function WordDetailScreen() {
     return <ActivityIndicator color={colors.accent} style={{ marginTop: 40 }} />;
   }
 
-  const ipaBits = Object.entries(word.ipaMap)
-    .filter(([, value]) => value)
-    .map(([key, value]) => {
-      const trimmed = String(value).trim();
-      const shown = trimmed.startsWith("/") ? trimmed : `/${trimmed}/`;
-      return `${key} ${shown}`;
-    });
+  const pronunciation = formatPronunciations(word.ipaMap);
+  const pos = posLabel(word.pos);
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
       <AppText style={styles.lemma}>{word.lemma}</AppText>
-      <AppText style={styles.sub}>
-        {word.pos}
-        {word.cefr ? ` · ${word.cefr}` : ""}
-        {word.app_band ? ` · ${word.app_band}` : ""}
-      </AppText>
-      {ipaBits.length ? <AppText style={styles.ipa}>{ipaBits.join("   ")}</AppText> : null}
-      {word.domains.length ? <AppText style={styles.meta}>{word.domains.join(" · ")}</AppText> : null}
+      <AppText style={styles.sub}>{pos}</AppText>
+      {pronunciation ? <AppText style={styles.ipa}>{pronunciation}</AppText> : null}
 
-      <AppText style={styles.heading}>意味</AppText>
-      {word.senses.length ? (
-        word.senses.map((sense, index) => (
-          <View key={`${sense.gloss_en}-${index}`} style={styles.block}>
-            {sense.gloss_ja ? <AppText style={styles.ja}>{sense.gloss_ja}</AppText> : null}
-            {sense.gloss_en ? <AppText style={styles.en}>{sense.gloss_en}</AppText> : null}
-          </View>
-        ))
-      ) : (
-        <AppText style={styles.muted}>意味データがありません</AppText>
-      )}
+      <View style={styles.senses}>
+        {word.senses.length ? (
+          word.senses.map((sense, index) => (
+            <View key={`${sense.gloss_en}-${index}`} style={styles.block}>
+              {sense.gloss_ja ? <AppText style={styles.ja}>{sense.gloss_ja}</AppText> : null}
+              {sense.gloss_en ? <AppText style={styles.en}>{sense.gloss_en}</AppText> : null}
+            </View>
+          ))
+        ) : (
+          <AppText style={styles.muted}>意味データがありません</AppText>
+        )}
+      </View>
 
       {word.collocations.length ? (
         <>
@@ -111,7 +103,7 @@ export default function WordDetailScreen() {
           <Pressable
             key={item.id}
             accessibilityRole="button"
-            accessibilityLabel={`${item.lemma} ${item.pos}`}
+            accessibilityLabel={`${item.lemma} ${posLabel(item.pos)}`}
             style={styles.neighbor}
             onPress={() => router.push({ pathname: "/word/[id]", params: { id: item.id } })}
           >
@@ -120,7 +112,7 @@ export default function WordDetailScreen() {
               <AppText style={styles.score}>{item.score.toFixed(2)}</AppText>
             </View>
             <AppText style={styles.muted}>
-              {item.pos}
+              {posLabel(item.pos)}
               {item.gloss_ja ? ` · ${item.gloss_ja.split(/[；;]/)[0]}` : ""}
             </AppText>
           </Pressable>
@@ -135,9 +127,9 @@ export default function WordDetailScreen() {
 const styles = StyleSheet.create({
   page: { padding: 20, paddingBottom: 48 },
   lemma: { fontSize: 32, ...extraBold, color: colors.ink },
-  sub: { marginTop: 6, color: colors.accent, ...semibold, fontSize: 16 },
-  ipa: { marginTop: 8, color: colors.ink },
-  meta: { marginTop: 6, color: colors.muted },
+  sub: { marginTop: 4, color: colors.accent, ...semibold, fontSize: 16 },
+  ipa: { marginTop: 6, color: colors.muted },
+  senses: { marginTop: 16 },
   heading: {
     marginTop: 22,
     marginBottom: 8,
