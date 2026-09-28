@@ -5,13 +5,22 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { listPosValues, listSpreadPage, listWords } from "../src/db";
 import { freshSpreadCursor, type SpreadCursor } from "../src/spread";
+import {
+  bandLabel,
+  bandSummary,
+  comparePos,
+  domainLabel,
+  domainSummary,
+  isAllSelected,
+  posLabel,
+  toggleChoice,
+} from "../src/labels";
 import { loadFilters, saveFilters } from "../src/storage";
 import { AppText, AppTextInput } from "../src/AppText";
 import { colors } from "../src/theme";
 import { bold, jaBody, semibold } from "../src/typography";
 import {
   APP_BANDS,
-  CEFR_LEVELS,
   DOMAINS,
   defaultFilters,
   type Filters,
@@ -34,10 +43,6 @@ function Chip({
       <AppText style={[styles.chipText, selected && styles.chipOnText]}>{label}</AppText>
     </Pressable>
   );
-}
-
-function toggle(values: string[], value: string): string[] {
-  return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
 }
 
 function firstGloss(text: string | null): string {
@@ -71,9 +76,10 @@ export default function ListScreen() {
     useCallback(() => {
       let alive = true;
       loadFilters().then((stored) => {
-        if (alive) {
-          setFilters((current) => ({ ...stored, query: current.query }));
-        }
+        if (!alive) return;
+        const next = stored.cefr.length ? { ...stored, cefr: [] } : stored;
+        if (stored.cefr.length) void saveFilters(next);
+        setFilters((current) => ({ ...next, query: current.query }));
       });
       return () => {
         alive = false;
@@ -142,15 +148,18 @@ export default function ListScreen() {
     });
   };
 
+  const orderedPos = useMemo(() => [...posOptions].sort(comparePos), [posOptions]);
+
   const filterSummary = useMemo(() => {
     const parts = [
-      filters.bands.length ? `band ${filters.bands.join("/")}` : "全band",
-      filters.domains.length ? filters.domains.join("/") : null,
-      filters.cefr.length ? filters.cefr.join("/") : null,
-      filters.pos.length ? filters.pos.join("/") : null,
+      bandSummary(filters.bands),
+      domainSummary(filters.domains),
+      filters.pos.length && !isAllSelected(filters.pos, orderedPos)
+        ? [...filters.pos].sort(comparePos).map(posLabel).join("・")
+        : null,
     ].filter(Boolean);
     return parts.join(" · ");
-  }, [filters]);
+  }, [filters, orderedPos]);
 
   return (
     <SafeAreaView style={styles.safe} edges={["bottom"]}>
@@ -178,47 +187,51 @@ export default function ListScreen() {
       </Pressable>
       {showFilters ? (
         <View style={styles.filters}>
-          <AppText style={styles.filterLabel}>学習バンド（TOEIC ~760 は review を外す）</AppText>
+          <AppText style={styles.filterLabel}>レベル</AppText>
           <View style={styles.chipRow}>
+            <Chip
+              label="すべて"
+              selected={isAllSelected(filters.bands, APP_BANDS)}
+              onPress={() => updateFilters({ bands: [] })}
+            />
             {APP_BANDS.map((band) => (
               <Chip
                 key={band}
-                label={band}
+                label={bandLabel(band)}
                 selected={filters.bands.includes(band)}
-                onPress={() => updateFilters({ bands: toggle(filters.bands, band) })}
+                onPress={() => updateFilters({ bands: toggleChoice(filters.bands, band, APP_BANDS) })}
               />
             ))}
           </View>
-          <AppText style={styles.filterLabel}>CEFR</AppText>
+          <AppText style={styles.filterLabel}>分野</AppText>
           <View style={styles.chipRow}>
-            {CEFR_LEVELS.map((level) => (
-              <Chip
-                key={level}
-                label={level}
-                selected={filters.cefr.includes(level)}
-                onPress={() => updateFilters({ cefr: toggle(filters.cefr, level) })}
-              />
-            ))}
-          </View>
-          <AppText style={styles.filterLabel}>ドメイン</AppText>
-          <View style={styles.chipRow}>
+            <Chip
+              label="すべて"
+              selected={isAllSelected(filters.domains, DOMAINS)}
+              onPress={() => updateFilters({ domains: [] })}
+            />
             {DOMAINS.map((domain) => (
               <Chip
                 key={domain}
-                label={domain}
+                label={domainLabel(domain)}
                 selected={filters.domains.includes(domain)}
-                onPress={() => updateFilters({ domains: toggle(filters.domains, domain) })}
+                onPress={() => updateFilters({ domains: toggleChoice(filters.domains, domain, DOMAINS) })}
               />
             ))}
           </View>
           <AppText style={styles.filterLabel}>品詞</AppText>
           <View style={styles.chipRow}>
-            {posOptions.map((pos) => (
+            <Chip
+              label="すべて"
+              selected={isAllSelected(filters.pos, orderedPos)}
+              onPress={() => updateFilters({ pos: [] })}
+            />
+            {orderedPos.map((pos) => (
               <Chip
                 key={pos}
-                label={pos}
+                label={posLabel(pos)}
                 selected={filters.pos.includes(pos)}
-                onPress={() => updateFilters({ pos: toggle(filters.pos, pos) })}
+                onPress={() => updateFilters({ pos: toggleChoice(filters.pos, pos, orderedPos) })}
               />
             ))}
           </View>
@@ -240,25 +253,27 @@ export default function ListScreen() {
           }}
           ListEmptyComponent={<AppText style={styles.empty}>該当する単語がありません</AppText>}
           ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.accent} /> : null}
-          renderItem={({ item }) => (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`${item.lemma} ${item.pos}`}
-              style={styles.card}
-              onPress={() => router.push({ pathname: "/word/[id]", params: { id: item.id } })}
-            >
-              <View style={styles.cardTop}>
-                <AppText style={styles.lemma}>{item.lemma}</AppText>
-                <AppText style={styles.pos}>{item.pos}</AppText>
-              </View>
-              <AppText style={styles.meta}>
-                {[item.cefr, item.app_band, formatIpa(item.ipa)].filter(Boolean).join("  ·  ")}
-              </AppText>
-              <AppText style={styles.gloss} numberOfLines={2}>
-                {firstGloss(item.gloss_ja) || firstGloss(item.gloss_en) || "（訳なし）"}
-              </AppText>
-            </Pressable>
-          )}
+          renderItem={({ item }) => {
+            const pronunciation = formatIpa(item.ipa);
+            const pos = posLabel(item.pos);
+            return (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`${item.lemma} ${pos}`}
+                style={styles.card}
+                onPress={() => router.push({ pathname: "/word/[id]", params: { id: item.id } })}
+              >
+                <View style={styles.cardTop}>
+                  <AppText style={styles.lemma}>{item.lemma}</AppText>
+                  <AppText style={styles.pos}>{pos}</AppText>
+                </View>
+                {pronunciation ? <AppText style={styles.meta}>{pronunciation}</AppText> : null}
+                <AppText style={styles.gloss} numberOfLines={2}>
+                  {firstGloss(item.gloss_ja) || firstGloss(item.gloss_en) || "（訳なし）"}
+                </AppText>
+              </Pressable>
+            );
+          }}
         />
       )}
     </SafeAreaView>
