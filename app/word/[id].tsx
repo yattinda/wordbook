@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 
+import { BookmarkSheet } from "../../src/BookmarkSheet";
 import { getNeighbors, getWord } from "../../src/db";
 import { AppText } from "../../src/AppText";
 import { formatPronunciations, posLabel } from "../../src/labels";
+import { choicesForWord, createList, setMembership, type BookmarkChoice } from "../../src/lists";
 import { colors } from "../../src/theme";
 import { bold, extraBold, jaBody, semibold } from "../../src/typography";
 import type { Neighbor, WordDetail } from "../../src/types";
@@ -14,6 +16,20 @@ export default function WordDetailScreen() {
   const [word, setWord] = useState<WordDetail | null>(null);
   const [neighbors, setNeighbors] = useState<Neighbor[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [lists, setLists] = useState<BookmarkChoice[]>([]);
+  const [listsReady, setListsReady] = useState(false);
+  const [listsError, setListsError] = useState<string | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const chain = useRef(Promise.resolve());
+  const listsGeneration = useRef(0);
+
+  useEffect(() => {
+    listsGeneration.current += 1;
+    setLists([]);
+    setListsReady(false);
+    setListsError(null);
+    setSheetOpen(false);
+  }, [id]);
 
   useEffect(() => {
     if (!id) return;
@@ -32,6 +48,65 @@ export default function WordDetailScreen() {
     };
   }, [id]);
 
+  useFocusEffect(
+    useCallback(() => {
+      if (!id) return;
+      const token = listsGeneration.current;
+      let alive = true;
+      choicesForWord(id)
+        .then((next) => {
+          if (!alive || token !== listsGeneration.current) return;
+          setLists(next);
+          setListsReady(true);
+        })
+        .catch((err) => {
+          console.error(err);
+          if (alive) setListsError("リストの読み込みに失敗しました");
+        });
+      return () => {
+        alive = false;
+      };
+    }, [id])
+  );
+
+  const toggleList = (listId: string, on: boolean) => {
+    if (!id) return;
+    const wordId = id;
+    listsGeneration.current += 1;
+    setLists((current) => current.map((list) => (list.id === listId ? { ...list, checked: on } : list)));
+    chain.current = chain.current.then(async () => {
+      try {
+        await setMembership(listId, wordId, on);
+      } catch {
+        try {
+          const token = ++listsGeneration.current;
+          const next = await choicesForWord(wordId);
+          if (token === listsGeneration.current) setLists(next);
+        } catch {
+          setListsError("リストの更新に失敗しました");
+        }
+      }
+    });
+  };
+
+  const createAndSave = async (name: string): Promise<string | null> => {
+    if (!id) return "リストを保存できませんでした";
+    const wordId = id;
+    try {
+      const result = await createList(name, wordId);
+      if (!result.ok) return result.error;
+      listsGeneration.current += 1;
+      setLists((current) => [
+        { id: result.id, name: result.name, checked: true },
+        ...current.filter((list) => list.id !== result.id),
+      ]);
+      setListsReady(true);
+      return null;
+    } catch {
+      return "リストを保存できませんでした";
+    }
+  };
+
   if (error) {
     return <AppText style={styles.error}>{error}</AppText>;
   }
@@ -41,12 +116,52 @@ export default function WordDetailScreen() {
 
   const pronunciation = formatPronunciations(word.ipaMap);
   const pos = posLabel(word.pos);
+  const savedLists = lists.filter((list) => list.checked);
 
   return (
+    <>
     <ScrollView contentContainerStyle={styles.page}>
       <AppText style={styles.lemma}>{word.lemma}</AppText>
       <AppText style={styles.sub}>{pos}</AppText>
       {pronunciation ? <AppText style={styles.ipa}>{pronunciation}</AppText> : null}
+
+      {listsError ? <AppText style={styles.listsError}>{listsError}</AppText> : null}
+      {listsReady ? (
+        savedLists.length ? (
+          <View style={styles.memberships}>
+            {savedLists.map((list) => (
+              <View key={list.id} style={styles.memberChip}>
+                <AppText style={styles.memberName} numberOfLines={1}>
+                  {list.name}
+                </AppText>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`${list.name} から外す`}
+                  hitSlop={6}
+                  onPress={() => toggleList(list.id, false)}
+                >
+                  <AppText style={styles.memberRemove}>×</AppText>
+                </Pressable>
+              </View>
+            ))}
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setSheetOpen(true)}
+              style={styles.editChip}
+            >
+              <AppText style={styles.editChipText}>追加・編集</AppText>
+            </Pressable>
+          </View>
+        ) : (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setSheetOpen(true)}
+            style={styles.addBtn}
+          >
+            <AppText style={styles.addBtnText}>リストに追加</AppText>
+          </Pressable>
+        )
+      ) : null}
 
       <View style={styles.senses}>
         {word.senses.length ? (
@@ -121,6 +236,15 @@ export default function WordDetailScreen() {
         <AppText style={styles.muted}>類似語はまだ計算されていません</AppText>
       )}
     </ScrollView>
+    {sheetOpen ? (
+      <BookmarkSheet
+        lists={lists}
+        onClose={() => setSheetOpen(false)}
+        onToggle={toggleList}
+        onCreate={createAndSave}
+      />
+    ) : null}
+    </>
   );
 }
 
@@ -129,6 +253,37 @@ const styles = StyleSheet.create({
   lemma: { fontSize: 32, ...extraBold, color: colors.ink },
   sub: { marginTop: 4, color: colors.accent, ...semibold, fontSize: 16 },
   ipa: { marginTop: 6, color: colors.muted },
+  listsError: { color: "#9B2C2C", marginTop: 12 },
+  memberships: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 14 },
+  memberChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    maxWidth: "100%",
+    backgroundColor: colors.chip,
+    borderRadius: 999,
+    paddingLeft: 10,
+    paddingRight: 8,
+    paddingVertical: 6,
+  },
+  memberName: { flexShrink: 1, color: colors.ink, fontSize: 14 },
+  memberRemove: { color: colors.muted, fontSize: 16, lineHeight: 18, ...semibold },
+  editChip: {
+    backgroundColor: colors.accentSoft,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  editChipText: { color: colors.accent, ...semibold, fontSize: 14 },
+  addBtn: {
+    alignSelf: "flex-start",
+    marginTop: 14,
+    backgroundColor: colors.accentSoft,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  addBtnText: { color: colors.accent, ...semibold },
   senses: { marginTop: 16 },
   heading: {
     marginTop: 22,
