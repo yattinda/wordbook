@@ -167,6 +167,26 @@ async function readSpreadSlice(
   return rows.map(mapListItem);
 }
 
+export async function getWordsByIds(ids: string[]): Promise<Map<string, WordListItem>> {
+  const found = new Map<string, WordListItem>();
+  if (!ids.length) return found;
+  const db = await getDb();
+  const chunkSize = 400;
+  for (let index = 0; index < ids.length; index += chunkSize) {
+    const chunk = ids.slice(index, index + chunkSize);
+    const placeholders = chunk.map(() => "?").join(", ");
+    const rows = await db.getAllAsync<Record<string, unknown>>(
+      `SELECT * FROM words WHERE id IN (${placeholders})`,
+      chunk
+    );
+    for (const row of rows) {
+      const item = mapListItem(row);
+      found.set(item.id, item);
+    }
+  }
+  return found;
+}
+
 export async function getWord(id: string): Promise<WordDetail | null> {
   const db = await getDb();
   const row = await db.getFirstAsync<Record<string, unknown>>("SELECT * FROM words WHERE id = ?", [id]);
