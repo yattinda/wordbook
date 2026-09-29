@@ -1,4 +1,7 @@
+import "react-native-gesture-handler";
+
 import { Platform } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import {
@@ -27,7 +30,7 @@ export default function RootLayout() {
   if (!fontsReady) return null;
 
   return (
-    <>
+    <GestureHandlerRootView style={{ flex: 1 }}>
       <StatusBar style="dark" />
       <Stack
         screenOptions={{
@@ -40,8 +43,10 @@ export default function RootLayout() {
       >
         <Stack.Screen name="index" options={{ title: "単語一覧" }} />
         <Stack.Screen name="word/[id]" options={{ title: "単語" }} />
+        <Stack.Screen name="lists/index" options={{ title: "マイリスト" }} />
+        <Stack.Screen name="lists/[id]" options={{ title: "リスト" }} />
         <Stack.Screen name="settings" options={{ title: "設定" }} />
       </Stack>
-    </>
+    </GestureHandlerRootView>
   );
 }
