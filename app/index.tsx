@@ -4,6 +4,8 @@ import { Link, router, useFocusEffect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { listPosValues, listSpreadPage, listWords } from "../src/db";
+import { savedWordIds } from "../src/lists";
+import { WordCard } from "../src/WordCard";
 import { freshSpreadCursor, type SpreadCursor } from "../src/spread";
 import {
   bandLabel,
@@ -18,7 +20,7 @@ import {
 import { loadFilters, saveFilters } from "../src/storage";
 import { AppText, AppTextInput } from "../src/AppText";
 import { colors } from "../src/theme";
-import { bold, jaBody, semibold } from "../src/typography";
+import { semibold } from "../src/typography";
 import {
   APP_BANDS,
   DOMAINS,
@@ -45,18 +47,6 @@ function Chip({
   );
 }
 
-function firstGloss(text: string | null): string {
-  if (!text) return "";
-  return text.split(/[；;]/)[0]?.trim() ?? "";
-}
-
-function formatIpa(ipa: string | null): string | null {
-  if (!ipa) return null;
-  const trimmed = ipa.trim();
-  if (trimmed.startsWith("/")) return trimmed;
-  return `/${trimmed}/`;
-}
-
 export default function ListScreen() {
   const [filters, setFilters] = useState<Filters>(defaultFilters());
   const [items, setItems] = useState<WordListItem[]>([]);
@@ -67,6 +57,7 @@ export default function ListScreen() {
   const [hasMore, setHasMore] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const spreadRef = useRef<SpreadCursor>(freshSpreadCursor());
   const spreadSeedRef = useRef(1);
   const requestRef = useRef(0);
@@ -81,6 +72,22 @@ export default function ListScreen() {
         if (stored.cefr.length) void saveFilters(next);
         setFilters((current) => ({ ...next, query: current.query }));
       });
+      return () => {
+        alive = false;
+      };
+    }, [])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      savedWordIds()
+        .then((ids) => {
+          if (alive) setSavedIds(new Set(ids));
+        })
+        .catch(() => {
+          if (alive) setSavedIds(new Set());
+        });
       return () => {
         alive = false;
       };
@@ -173,6 +180,11 @@ export default function ListScreen() {
           autoCorrect={false}
           style={styles.search}
         />
+        <Link href="/lists" asChild>
+          <Pressable accessibilityLabel="マイリスト" style={styles.iconBtn}>
+            <AppText style={styles.iconBtnText}>リスト</AppText>
+          </Pressable>
+        </Link>
         <Link href="/settings" asChild>
           <Pressable style={styles.iconBtn}>
             <AppText style={styles.iconBtnText}>設定</AppText>
@@ -243,6 +255,7 @@ export default function ListScreen() {
       ) : (
         <FlatList
           data={items}
+          extraData={savedIds}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
           onEndReachedThreshold={0.4}
@@ -253,27 +266,13 @@ export default function ListScreen() {
           }}
           ListEmptyComponent={<AppText style={styles.empty}>該当する単語がありません</AppText>}
           ListFooterComponent={loadingMore ? <ActivityIndicator color={colors.accent} /> : null}
-          renderItem={({ item }) => {
-            const pronunciation = formatIpa(item.ipa);
-            const pos = posLabel(item.pos);
-            return (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`${item.lemma} ${pos}`}
-                style={styles.card}
-                onPress={() => router.push({ pathname: "/word/[id]", params: { id: item.id } })}
-              >
-                <View style={styles.cardTop}>
-                  <AppText style={styles.lemma}>{item.lemma}</AppText>
-                  <AppText style={styles.pos}>{pos}</AppText>
-                </View>
-                {pronunciation ? <AppText style={styles.meta}>{pronunciation}</AppText> : null}
-                <AppText style={styles.gloss} numberOfLines={2}>
-                  {firstGloss(item.gloss_ja) || firstGloss(item.gloss_en) || "（訳なし）"}
-                </AppText>
-              </Pressable>
-            );
-          }}
+          renderItem={({ item }) => (
+            <WordCard
+              item={item}
+              saved={savedIds.has(item.id)}
+              onPress={() => router.push({ pathname: "/word/[id]", params: { id: item.id } })}
+            />
+          )}
         />
       )}
     </SafeAreaView>
@@ -322,18 +321,6 @@ const styles = StyleSheet.create({
   chipText: { color: colors.ink, fontSize: 13 },
   chipOnText: { color: colors.chipOnText },
   list: { padding: 16, paddingBottom: 40, gap: 10 },
-  card: {
-    backgroundColor: colors.card,
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: colors.line,
-  },
-  cardTop: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" },
-  lemma: { fontSize: 22, ...bold, color: colors.ink, flex: 1, paddingRight: 8 },
-  pos: { color: colors.accent, ...semibold },
-  meta: { color: colors.muted, marginTop: 4 },
-  gloss: { color: colors.ink, marginTop: 8, fontSize: 15, lineHeight: 22, ...jaBody },
   empty: { textAlign: "center", color: colors.muted, marginTop: 40 },
   spinner: { marginTop: 40 },
   error: { color: "#9B2C2C", paddingHorizontal: 16 },
