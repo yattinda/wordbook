@@ -224,6 +224,28 @@ export async function getNeighbors(id: string): Promise<Neighbor[]> {
   }));
 }
 
+export async function countQuizWords(filters: Filters): Promise<number> {
+  const db = await getDb();
+  const { countSql, countParams } = buildWordListSql(filters, 1, 0, {
+    ...(await listSqlOptions()),
+    requireGlossJa: true,
+  });
+  const countRow = await db.getFirstAsync<{ n: number }>(countSql, countParams);
+  return countRow?.n ?? 0;
+}
+
+export async function sampleQuizWords(filters: Filters, limit: number): Promise<WordListItem[]> {
+  if (limit <= 0) return [];
+  const db = await getDb();
+  const { sql, params } = buildWordListSql(filters, limit, 0, {
+    ...(await listSqlOptions()),
+    requireGlossJa: true,
+    order: "random",
+  });
+  const rows = await db.getAllAsync<Record<string, unknown>>(sql, params);
+  return rows.map(mapListItem);
+}
+
 export async function listPosValues(): Promise<string[]> {
   const db = await getDb();
   const rows = await db.getAllAsync<{ pos: string }>(
