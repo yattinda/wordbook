@@ -147,10 +147,21 @@ export default function BookmarkListScreen() {
         options={{
           title: name ?? "リスト",
           headerRight: () =>
-            name ? (
-              <Pressable accessibilityRole="button" onPress={openMenu} hitSlop={8} style={styles.headerBtn}>
-                <AppText style={styles.headerBtnText}>編集</AppText>
-              </Pressable>
+            name && id ? (
+              <View style={styles.headerActions}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="このリストでクイズ"
+                  onPress={() => router.push({ pathname: "/quiz", params: { listId: id } })}
+                  hitSlop={8}
+                  style={styles.headerBtn}
+                >
+                  <AppText style={styles.headerBtnText}>クイズ</AppText>
+                </Pressable>
+                <Pressable accessibilityRole="button" onPress={openMenu} hitSlop={8} style={styles.headerBtn}>
+                  <AppText style={styles.headerBtnText}>編集</AppText>
+                </Pressable>
+              </View>
             ) : null,
         }}
       />
@@ -279,6 +290,7 @@ export default function BookmarkListScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
+  headerActions: { flexDirection: "row", alignItems: "center" },
   headerBtn: { paddingHorizontal: 8 },
   headerBtnText: { color: colors.accent, ...semibold, fontSize: 16 },
   search: {

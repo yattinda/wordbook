@@ -180,6 +180,18 @@ export default function ListScreen() {
           autoCorrect={false}
           style={styles.search}
         />
+        <Link
+          href={
+            filters.query
+              ? { pathname: "/quiz", params: { query: filters.query } }
+              : "/quiz"
+          }
+          asChild
+        >
+          <Pressable accessibilityLabel="クイズ" style={styles.iconBtn}>
+            <AppText style={styles.iconBtnText}>クイズ</AppText>
+          </Pressable>
+        </Link>
         <Link href="/lists" asChild>
           <Pressable accessibilityLabel="マイリスト" style={styles.iconBtn}>
             <AppText style={styles.iconBtnText}>リスト</AppText>

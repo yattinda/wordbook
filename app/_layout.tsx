@@ -42,6 +42,7 @@ export default function RootLayout() {
         }}
       >
         <Stack.Screen name="index" options={{ title: "単語一覧" }} />
+        <Stack.Screen name="quiz" options={{ title: "クイズ" }} />
         <Stack.Screen name="word/[id]" options={{ title: "単語" }} />
         <Stack.Screen name="lists/index" options={{ title: "マイリスト" }} />
         <Stack.Screen name="lists/[id]" options={{ title: "リスト" }} />
