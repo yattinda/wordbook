@@ -8,6 +8,7 @@ import { formatPronunciations, posLabel } from "../../src/labels";
 import { colors } from "../../src/theme";
 import { bold, extraBold, jaBody, semibold } from "../../src/typography";
 import type { Neighbor, WordDetail } from "../../src/types";
+import { useWordMark, WordMarkControls } from "../../src/WordMarks";
 import { useWordLists, WordListControls } from "../../src/WordLists";
 
 export default function WordDetailScreen() {
@@ -16,6 +17,7 @@ export default function WordDetailScreen() {
   const [neighbors, setNeighbors] = useState<Neighbor[]>([]);
   const [error, setError] = useState<string | null>(null);
   const wordLists = useWordLists(id);
+  const wordMark = useWordMark(id);
 
   useEffect(() => {
     if (!id) return;
@@ -56,6 +58,7 @@ export default function WordDetailScreen() {
       {pronunciation ? <AppText style={styles.ipa}>{pronunciation}</AppText> : null}
 
       <WordListControls {...wordLists} />
+      <WordMarkControls {...wordMark} />
 
       <View style={styles.senses}>
         {word.senses.length ? (

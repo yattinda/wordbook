@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 
 import { AppText } from "../src/AppText";
 import { loadAttribution } from "../src/db";
+import { clearAllMarks } from "../src/marks";
 import { loadFilters, saveFilters } from "../src/storage";
 import { colors } from "../src/theme";
 import { bold, semibold } from "../src/typography";
@@ -38,6 +39,23 @@ export default function SettingsScreen() {
     await saveFilters(next);
   };
 
+  const confirmClearMarks = () => {
+    Alert.alert(
+      "学習の印を消す",
+      "クイズで付けた「知っている／知らない」の印と、次に出す日時をすべて消します。マイリストはそのままです。",
+      [
+        { text: "キャンセル", style: "cancel" },
+        {
+          text: "消す",
+          style: "destructive",
+          onPress: () => {
+            void clearAllMarks();
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <ScrollView contentContainerStyle={styles.page}>
       <AppText style={styles.heading}>学習レベル</AppText>
@@ -56,6 +74,14 @@ export default function SettingsScreen() {
         </Pressable>
       </View>
       <AppText style={styles.current}>現在: {bandSummary(filters.bands)}</AppText>
+
+      <AppText style={styles.heading}>学習印</AppText>
+      <AppText style={styles.lead}>
+        クイズや単語詳細で付けた印は、端末内にだけ保存されます。マイリストとは別です。
+      </AppText>
+      <Pressable style={styles.dangerBtn} onPress={confirmClearMarks}>
+        <AppText style={styles.dangerBtnText}>学習の印を消す</AppText>
+      </Pressable>
 
       <AppText style={styles.heading}>ライセンス / クレジット</AppText>
       <AppText style={styles.body}>{attribution}</AppText>
@@ -76,5 +102,16 @@ const styles = StyleSheet.create({
   },
   btnText: { color: "#fff", ...semibold },
   current: { color: colors.ink, marginBottom: 24 },
+  dangerBtn: {
+    alignSelf: "flex-start",
+    backgroundColor: colors.chip,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  dangerBtnText: { color: "#9B2C2C", ...semibold },
   body: { color: colors.ink, lineHeight: 22, fontSize: 13 },
 });
