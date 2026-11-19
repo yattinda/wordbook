@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { useFocusEffect } from "expo-router";
 
 import { AppText } from "../src/AppText";
 import { loadAttribution } from "../src/db";
@@ -13,8 +14,19 @@ export default function SettingsScreen() {
   const [filters, setFilters] = useState<Filters>(defaultFilters());
   const [attribution, setAttribution] = useState("読み込み中…");
 
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      loadFilters().then((stored) => {
+        if (alive) setFilters(stored);
+      });
+      return () => {
+        alive = false;
+      };
+    }, [])
+  );
+
   useEffect(() => {
-    loadFilters().then(setFilters);
     loadAttribution()
       .then(setAttribution)
       .catch(() => setAttribution("ATTRIBUTION.md を表示できませんでした。データセットのクレジットを確認してください。"));
