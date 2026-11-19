@@ -33,20 +33,26 @@ function SavedMark() {
 export function WordCard({
   item,
   saved = false,
+  selected = false,
   onPress,
+  onLongPress,
 }: {
   item: WordListItem;
   saved?: boolean;
+  selected?: boolean;
   onPress: () => void;
+  onLongPress?: () => void;
 }) {
   const pronunciation = formatIpa(item.ipa);
   const pos = posLabel(item.pos);
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${item.lemma} ${pos}${saved ? " 保存済み" : ""}`}
-      style={styles.card}
+      accessibilityLabel={`${item.lemma} ${pos}${saved ? " 保存済み" : ""}${selected ? " 選択中" : ""}`}
+      style={[styles.card, selected && styles.cardSelected]}
       onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={400}
     >
       <View style={styles.cardTop}>
         <AppText style={styles.lemma}>{item.lemma}</AppText>
@@ -70,6 +76,11 @@ const styles = StyleSheet.create({
     padding: 14,
     borderWidth: 1,
     borderColor: colors.line,
+  },
+  cardSelected: {
+    borderColor: colors.accent,
+    borderWidth: 2,
+    backgroundColor: colors.chip,
   },
   cardTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   lemma: { fontSize: 22, ...bold, color: colors.ink, flex: 1, paddingRight: 8 },

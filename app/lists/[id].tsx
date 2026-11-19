@@ -13,6 +13,7 @@ import {
   deleteList,
   getList,
   membershipsInList,
+  removeMemberships,
   renameList,
   setMembership,
 } from "../../src/lists";
@@ -50,6 +51,9 @@ export default function BookmarkListScreen() {
   const [renaming, setRenaming] = useState(false);
   const [renameError, setRenameError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [removing, setRemoving] = useState(false);
   const loadToken = useRef(0);
 
   const load = useCallback(async () => {
@@ -108,6 +112,48 @@ export default function BookmarkListScreen() {
     }
   };
 
+  const exitSelection = () => {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const enterSelection = (wordId: string) => {
+    setSelectionMode(true);
+    setSelectedIds(new Set([wordId]));
+  };
+
+  const toggleSelected = (wordId: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(wordId)) next.delete(wordId);
+      else next.add(wordId);
+      return next;
+    });
+  };
+
+  const removeSelected = async () => {
+    if (!id || selectedIds.size === 0 || removing) return;
+    const ids = [...selectedIds];
+    setRemoving(true);
+    loadToken.current += 1;
+    setEntries((current) => current.filter((entry) => !selectedIds.has(entryId(entry))));
+    exitSelection();
+    try {
+      await removeMemberships(id, ids);
+      setError(null);
+    } catch {
+      setError("単語を外せませんでした");
+      await load();
+    } finally {
+      setRemoving(false);
+    }
+  };
+
+  const onItemPress = (wordId: string, openDetail?: () => void) => {
+    if (selectionMode) toggleSelected(wordId);
+    else openDetail?.();
+  };
+
   const submitRename = async (nextName: string) => {
     if (!id) return;
     setRenameError(null);
@@ -145,9 +191,39 @@ export default function BookmarkListScreen() {
     <SafeAreaView style={styles.safe} edges={["bottom"]}>
       <Stack.Screen
         options={{
-          title: name ?? "リスト",
-          headerRight: () =>
-            name && id ? (
+          title: selectionMode ? `${selectedIds.size}件選択` : (name ?? "リスト"),
+          headerLeft: selectionMode
+            ? () => (
+                <Pressable accessibilityRole="button" onPress={exitSelection} hitSlop={8} style={styles.headerBtn}>
+                  <AppText style={styles.headerBtnText}>キャンセル</AppText>
+                </Pressable>
+              )
+            : undefined,
+          headerRight: () => {
+            if (!name || !id) return null;
+            if (selectionMode) {
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="選択した単語を外す"
+                  disabled={selectedIds.size === 0 || removing}
+                  onPress={() => void removeSelected()}
+                  hitSlop={8}
+                  style={styles.headerBtn}
+                >
+                  <AppText
+                    style={[
+                      styles.headerBtnText,
+                      (selectedIds.size === 0 || removing) && styles.headerBtnOff,
+                      selectedIds.size > 0 && styles.headerDanger,
+                    ]}
+                  >
+                    {removing ? "外しています" : "外す"}
+                  </AppText>
+                </Pressable>
+              );
+            }
+            return (
               <View style={styles.headerActions}>
                 <Pressable
                   accessibilityRole="button"
@@ -162,7 +238,8 @@ export default function BookmarkListScreen() {
                   <AppText style={styles.headerBtnText}>編集</AppText>
                 </Pressable>
               </View>
-            ) : null,
+            );
+          },
         }}
       />
       {error ? <AppText style={styles.error}>{error}</AppText> : null}
@@ -189,36 +266,57 @@ export default function BookmarkListScreen() {
             contentContainerStyle={styles.list}
             keyboardShouldPersistTaps="handled"
             ListEmptyComponent={<AppText style={styles.empty}>該当する単語がありません</AppText>}
-            renderItem={({ item }) => (
-              <Swipeable
-                friction={2}
-                overshootRight={false}
-                activeOffsetX={[-24, 24]}
-                failOffsetY={[-16, 16]}
-                useNativeAnimations={Platform.OS !== "web"}
-                renderRightActions={() => (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="外す"
-                    onPress={() => void removeWord(entryId(item))}
-                    style={styles.remove}
-                  >
-                    <AppText style={styles.removeText}>外す</AppText>
-                  </Pressable>
-                )}
-              >
-                {item.kind === "word" ? (
+            renderItem={({ item }) => {
+              const wordId = entryId(item);
+              const selected = selectedIds.has(wordId);
+              const body =
+                item.kind === "word" ? (
                   <WordCard
                     item={item.word}
-                    onPress={() => router.push({ pathname: "/word/[id]", params: { id: item.word.id } })}
+                    selected={selected}
+                    onPress={() =>
+                      onItemPress(wordId, () =>
+                        router.push({ pathname: "/word/[id]", params: { id: item.word.id } })
+                      )
+                    }
+                    onLongPress={() => (selectionMode ? toggleSelected(wordId) : enterSelection(wordId))}
                   />
                 ) : (
-                  <View style={styles.missingCard}>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => onItemPress(wordId)}
+                    onLongPress={() => (selectionMode ? toggleSelected(wordId) : enterSelection(wordId))}
+                    delayLongPress={400}
+                    style={[styles.missingCard, selected && styles.missingSelected]}
+                  >
                     <AppText style={styles.missingText}>この単語は見つかりません</AppText>
-                  </View>
-                )}
-              </Swipeable>
-            )}
+                  </Pressable>
+                );
+
+              if (selectionMode) return body;
+
+              return (
+                <Swipeable
+                  friction={2}
+                  overshootRight={false}
+                  activeOffsetX={[-24, 24]}
+                  failOffsetY={[-16, 16]}
+                  useNativeAnimations={Platform.OS !== "web"}
+                  renderRightActions={() => (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="外す"
+                      onPress={() => void removeWord(wordId)}
+                      style={styles.remove}
+                    >
+                      <AppText style={styles.removeText}>外す</AppText>
+                    </Pressable>
+                  )}
+                >
+                  {body}
+                </Swipeable>
+              );
+            }}
           />
         </>
       )}
@@ -293,6 +391,8 @@ const styles = StyleSheet.create({
   headerActions: { flexDirection: "row", alignItems: "center" },
   headerBtn: { paddingHorizontal: 8 },
   headerBtnText: { color: colors.accent, ...semibold, fontSize: 16 },
+  headerBtnOff: { opacity: 0.4 },
+  headerDanger: { color: "#9B2C2C" },
   search: {
     marginHorizontal: 16,
     marginTop: 8,
@@ -321,6 +421,11 @@ const styles = StyleSheet.create({
     padding: 14,
     borderWidth: 1,
     borderColor: colors.line,
+  },
+  missingSelected: {
+    borderColor: colors.accent,
+    borderWidth: 2,
+    backgroundColor: colors.chip,
   },
   missingText: { color: colors.muted, lineHeight: 22 },
   empty: { textAlign: "center", color: colors.muted, marginTop: 40, lineHeight: 22, paddingHorizontal: 24 },
