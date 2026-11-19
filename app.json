@@ -27,7 +27,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.wordbook"
+      "package": "com.yattinda.wordbook"
     },
     "web": {
       "favicon": "./assets/favicon.png",
