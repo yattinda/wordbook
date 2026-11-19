@@ -3,6 +3,9 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 /** Kept out of wordbook.db, which is replaced whenever the dictionary is ingested. */
 const KEY = "wordbook.lists.v1";
 
+/** Auto-filled when a word is marked unknown at least once in quiz or detail. */
+export const TROUBLE_LIST_NAME = "要復習";
+
 export type BookmarkList = {
   id: string;
   name: string;
@@ -176,6 +179,19 @@ export function setMembership(listId: string, wordId: string, on: boolean): Prom
   }, true);
 }
 
+export function removeMemberships(listId: string, wordIds: readonly string[]): Promise<void> {
+  if (!wordIds.length) return Promise.resolve();
+  const drop = new Set(wordIds);
+  return withStore(
+    (store) => {
+      store.memberships = store.memberships.filter(
+        (item) => !(item.listId === listId && drop.has(item.wordId))
+      );
+    },
+    true
+  );
+}
+
 export function savedWordIds(): Promise<string[]> {
   return withStore((store) => [...new Set(store.memberships.map((item) => item.wordId))], false);
 }
@@ -189,4 +205,28 @@ export function membershipsInList(listId: string): Promise<ListMembership[]> {
         .map((item) => ({ wordId: item.wordId, addedAt: item.addedAt })),
     false
   );
+}
+
+function findTroubleList(store: Store): StoredList | undefined {
+  return store.lists.find((list) => list.name === TROUBLE_LIST_NAME);
+}
+
+export function getTroubleListId(): Promise<string | null> {
+  return withStore((store) => findTroubleList(store)?.id ?? null, false);
+}
+
+function ensureTroubleListInStore(store: Store): string {
+  const existing = findTroubleList(store);
+  if (existing) return existing.id;
+  const id = newId();
+  store.lists.push({ id, name: TROUBLE_LIST_NAME, createdAt: Date.now() });
+  return id;
+}
+
+export function addToTroubleList(wordId: string): Promise<void> {
+  return withStore((store) => {
+    const listId = ensureTroubleListInStore(store);
+    const index = store.memberships.findIndex((item) => item.listId === listId && item.wordId === wordId);
+    if (index === -1) store.memberships.push({ listId, wordId, addedAt: Date.now() });
+  }, true);
 }
