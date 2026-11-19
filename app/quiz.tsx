@@ -13,7 +13,14 @@ import {
   isAllSelected,
   posLabel,
 } from "../src/labels";
-import { getList, getLists, membershipsInList, type BookmarkList } from "../src/lists";
+import { getList, getLists, getTroubleListId, membershipsInList, type BookmarkList } from "../src/lists";
+import {
+  markKnown,
+  markUnknown,
+  QUIZ_SOURCE_REVIEW,
+  restingIds,
+  reviewMarks,
+} from "../src/marks";
 import { loadFilters } from "../src/storage";
 import { colors } from "../src/theme";
 import { bold, extraBold, jaBody, semibold } from "../src/typography";
@@ -72,6 +79,38 @@ async function eligibleListWords(listId: string): Promise<WordListItem[] | null>
   return eligible;
 }
 
+async function restingForQuiz(sourceId: string | null): Promise<string[]> {
+  if (sourceId === QUIZ_SOURCE_REVIEW) return [];
+  const troubleListId = await getTroubleListId();
+  if (troubleListId && sourceId === troubleListId) return [];
+  return restingIds();
+}
+
+async function reviewDeckWords(limit: number): Promise<WordListItem[]> {
+  const marks = await reviewMarks();
+  if (!marks.length || limit <= 0) return [];
+  const words = await getWordsByIds(marks.map((mark) => mark.wordId));
+  const items: WordListItem[] = [];
+  for (const mark of marks) {
+    const word = words.get(mark.wordId);
+    if (word?.gloss_ja?.trim()) items.push(word);
+    if (items.length >= limit) break;
+  }
+  return items;
+}
+
+async function countReviewDeckWords(): Promise<number> {
+  const marks = await reviewMarks();
+  if (!marks.length) return 0;
+  const words = await getWordsByIds(marks.map((mark) => mark.wordId));
+  let count = 0;
+  for (const mark of marks) {
+    const word = words.get(mark.wordId);
+    if (word?.gloss_ja?.trim()) count += 1;
+  }
+  return count;
+}
+
 function Chip({
   label,
   selected,
@@ -104,7 +143,9 @@ export default function QuizScreen() {
   const [sourceId, setSourceId] = useState<string | null>(paramListId ?? null);
   const [size, setSize] = useState<(typeof SIZES)[number]>(20);
   const [poolCount, setPoolCount] = useState<number | null>(null);
+  const [poolTotal, setPoolTotal] = useState<number | null>(null);
   const [counting, setCounting] = useState(true);
+  const [marking, setMarking] = useState(false);
   const [listMissing, setListMissing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -156,29 +197,45 @@ export default function QuizScreen() {
     if (sourceId === null && !filtersReady) {
       setCounting(true);
       setPoolCount(null);
+      setPoolTotal(null);
       setListMissing(false);
       return;
     }
     const token = ++countToken.current;
     setCounting(true);
     setPoolCount(null);
+    setPoolTotal(null);
     setListMissing(false);
     setError(null);
     const run = async () => {
+      if (sourceId === QUIZ_SOURCE_REVIEW) {
+        const total = await countReviewDeckWords();
+        if (token !== countToken.current) return;
+        setPoolTotal(total);
+        setPoolCount(total);
+        return;
+      }
+      const resting = await restingForQuiz(sourceId);
+      const restingSet = new Set(resting);
       if (sourceId === null) {
         const total = await countQuizWords(filters);
+        const available = await countQuizWords(filters, resting);
         if (token !== countToken.current) return;
-        setPoolCount(total);
+        setPoolTotal(total);
+        setPoolCount(available);
         return;
       }
       const words = await eligibleListWords(sourceId);
       if (token !== countToken.current) return;
       if (!words) {
         setListMissing(true);
+        setPoolTotal(0);
         setPoolCount(0);
         return;
       }
-      setPoolCount(words.length);
+      const available = words.filter((word) => !restingSet.has(word.id)).length;
+      setPoolTotal(words.length);
+      setPoolCount(available);
     };
     run()
       .catch((err) => {
@@ -230,20 +287,34 @@ export default function QuizScreen() {
     setError(null);
     try {
       let items: WordListItem[] = [];
-      if (sourceId === null) {
-        const total = await countQuizWords(filters);
+      if (sourceId === QUIZ_SOURCE_REVIEW) {
+        const total = await countReviewDeckWords();
+        setPoolTotal(total);
         setPoolCount(total);
-        items = await sampleQuizWords(filters, Math.min(size, total));
+        items = await reviewDeckWords(Math.min(size, total));
       } else {
-        const words = await eligibleListWords(sourceId);
-        if (!words) {
-          setListMissing(true);
-          setPoolCount(0);
-          setPhase("setup");
-          return;
+        const resting = await restingForQuiz(sourceId);
+        const restingSet = new Set(resting);
+        if (sourceId === null) {
+          const total = await countQuizWords(filters);
+          const available = await countQuizWords(filters, resting);
+          setPoolTotal(total);
+          setPoolCount(available);
+          items = await sampleQuizWords(filters, Math.min(size, available), resting);
+        } else {
+          const words = await eligibleListWords(sourceId);
+          if (!words) {
+            setListMissing(true);
+            setPoolTotal(0);
+            setPoolCount(0);
+            setPhase("setup");
+            return;
+          }
+          const eligible = words.filter((word) => !restingSet.has(word.id));
+          setPoolTotal(words.length);
+          setPoolCount(eligible.length);
+          items = shuffle(eligible).slice(0, Math.min(size, eligible.length));
         }
-        setPoolCount(words.length);
-        items = shuffle(words).slice(0, Math.min(size, words.length));
       }
       if (!items.length) {
         setPoolCount(0);
@@ -268,10 +339,41 @@ export default function QuizScreen() {
     }
   };
 
+  const finishMark = async (known: boolean) => {
+    if (!item || marking) return;
+    setMarking(true);
+    setAnswerError(null);
+    try {
+      if (known) {
+        await markKnown(item.id);
+      } else {
+        await markUnknown(item.id);
+        const remaining = deck.slice(index + 1);
+        const alreadyQueued = remaining.some((word) => word.id === item.id);
+        if (!alreadyQueued) setDeck((current) => [...current, item]);
+      }
+      advance();
+    } catch (err) {
+      setAnswerError(err instanceof Error ? err.message : "保存に失敗しました");
+    } finally {
+      setMarking(false);
+    }
+  };
+
   const title = phase === "answer" ? "答え" : "クイズ";
   const leaveLabel = paramListId ? "リストへ戻る" : "一覧へ戻る";
   const selectedList = bookmarkLists.find((list) => list.id === sourceId);
   const take = poolCount == null ? size : Math.min(size, poolCount);
+  const isReview = sourceId === QUIZ_SOURCE_REVIEW;
+  const emptyLabel =
+    isReview
+      ? "復習する語はありません"
+      : poolTotal != null && poolTotal > 0 && poolCount === 0
+        ? "出題できる語は、いま休みの学習印だけです。「復習」から出題できます。"
+        : "日本語訳のある単語がありません";
+  const poolLabel = isReview
+    ? `復習対象の ${poolCount == null ? "…" : poolCount.toLocaleString()} 語から`
+    : `日本語訳のある ${poolCount == null ? "…" : poolCount.toLocaleString()} 語から`;
 
   return (
     <SafeAreaView style={styles.safe} edges={["bottom"]}>
@@ -281,6 +383,11 @@ export default function QuizScreen() {
           <AppText style={styles.label}>出題元</AppText>
           <View style={styles.chipRow}>
             <Chip label="今の絞り込み" selected={sourceId === null} onPress={() => chooseSource(null)} />
+            <Chip
+              label="復習"
+              selected={sourceId === QUIZ_SOURCE_REVIEW}
+              onPress={() => chooseSource(QUIZ_SOURCE_REVIEW)}
+            />
             {bookmarkLists.map((list) => (
               <Chip
                 key={list.id}
@@ -292,6 +399,8 @@ export default function QuizScreen() {
           </View>
           {sourceId === null ? (
             <AppText style={styles.summary}>{describeFilters(filters, posOptions)}</AppText>
+          ) : isReview ? (
+            <AppText style={styles.summary}>学習印の復習</AppText>
           ) : (
             <AppText style={styles.summary}>{selectedList?.name ?? "リスト"}</AppText>
           )}
@@ -308,16 +417,14 @@ export default function QuizScreen() {
             </View>
           ) : poolCount === 0 ? (
             <View style={styles.emptyBlock}>
-              <AppText style={styles.empty}>日本語訳のある単語がありません</AppText>
+              <AppText style={styles.empty}>{emptyLabel}</AppText>
               <Pressable accessibilityRole="button" onPress={leave} style={styles.textBtn}>
                 <AppText style={styles.textBtnLabel}>{leaveLabel}</AppText>
               </Pressable>
             </View>
           ) : (
             <>
-              <AppText style={styles.count}>
-                日本語訳のある {poolCount == null ? "…" : poolCount.toLocaleString()} 語から
-              </AppText>
+              <AppText style={styles.count}>{poolLabel}</AppText>
               <AppText style={styles.label}>語数</AppText>
               <View style={styles.chipRow}>
                 {SIZES.map((option) => (
@@ -393,10 +500,19 @@ export default function QuizScreen() {
             </Pressable>
             <Pressable
               accessibilityRole="button"
-              onPress={advance}
-              style={[styles.primary, styles.footerPrimary]}
+              disabled={marking}
+              onPress={() => void finishMark(false)}
+              style={[styles.secondary, styles.footerSecondary, marking && styles.primaryOff]}
             >
-              <AppText style={styles.primaryText}>次へ</AppText>
+              <AppText style={styles.secondaryText}>知らない</AppText>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              disabled={marking}
+              onPress={() => void finishMark(true)}
+              style={[styles.primary, styles.footerPrimary, marking && styles.primaryOff]}
+            >
+              <AppText style={styles.primaryText}>{marking ? "保存中…" : "知っている"}</AppText>
             </Pressable>
           </View>
         </View>
@@ -513,6 +629,16 @@ const styles = StyleSheet.create({
     borderTopColor: colors.line,
   },
   footerPrimary: { flex: 1, marginTop: 0 },
+  footerSecondary: { flex: 1, marginTop: 0 },
+  secondary: {
+    backgroundColor: colors.card,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  secondaryText: { color: colors.ink, ...semibold, fontSize: 16 },
   primary: {
     marginTop: 20,
     backgroundColor: colors.accent,
