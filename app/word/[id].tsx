@@ -12,7 +12,7 @@ import { useWordLists, WordListControls } from "../../src/WordLists";
 
 export default function WordDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const [word, setWord] = useState<WordDetail | null>(null);
+  const [word, setWord] = useState<WordDetail | null | undefined>(undefined);
   const [neighbors, setNeighbors] = useState<Neighbor[]>([]);
   const [error, setError] = useState<string | null>(null);
   const wordLists = useWordLists(id);
@@ -20,6 +20,8 @@ export default function WordDetailScreen() {
   useEffect(() => {
     if (!id) return;
     let alive = true;
+    setWord(undefined);
+    setError(null);
     Promise.all([getWord(id), getNeighbors(id)])
       .then(([nextWord, nextNeighbors]) => {
         if (!alive) return;
@@ -37,8 +39,11 @@ export default function WordDetailScreen() {
   if (error) {
     return <AppText style={styles.error}>{error}</AppText>;
   }
-  if (!word) {
+  if (word === undefined) {
     return <ActivityIndicator color={colors.accent} style={{ marginTop: 40 }} />;
+  }
+  if (word === null) {
+    return <AppText style={styles.error}>単語が見つかりません</AppText>;
   }
 
   const pronunciation = formatPronunciations(word.ipaMap);
