@@ -46,7 +46,6 @@ export type Neighbor = {
 };
 
 export const APP_BANDS = ["review", "core", "upper", "advanced"] as const;
-export const CEFR_LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"] as const;
 export const DOMAINS = ["general", "toeic", "business", "academic"] as const;
 
 export const DEFAULT_BANDS = ["core", "upper", "advanced"] as const;
@@ -54,7 +53,6 @@ export const DEFAULT_BANDS = ["core", "upper", "advanced"] as const;
 export type Filters = {
   query: string;
   bands: string[];
-  cefr: string[];
   domains: string[];
   pos: string[];
 };
@@ -62,7 +60,6 @@ export type Filters = {
 export const defaultFilters = (): Filters => ({
   query: "",
   bands: [...DEFAULT_BANDS],
-  cefr: [],
   domains: [],
   pos: [],
 });

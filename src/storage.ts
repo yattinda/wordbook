@@ -10,9 +10,10 @@ export async function loadFilters(): Promise<Filters> {
     if (!raw) return defaultFilters();
     const parsed = JSON.parse(raw) as Partial<Filters>;
     return {
-      ...defaultFilters(),
-      ...parsed,
       query: "",
+      bands: Array.isArray(parsed.bands) ? parsed.bands : defaultFilters().bands,
+      domains: Array.isArray(parsed.domains) ? parsed.domains : [],
+      pos: Array.isArray(parsed.pos) ? parsed.pos : [],
     };
   } catch {
     return defaultFilters();

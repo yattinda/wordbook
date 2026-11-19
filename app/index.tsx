@@ -68,9 +68,7 @@ export default function ListScreen() {
       let alive = true;
       loadFilters().then((stored) => {
         if (!alive) return;
-        const next = stored.cefr.length ? { ...stored, cefr: [] } : stored;
-        if (stored.cefr.length) void saveFilters(next);
-        setFilters((current) => ({ ...next, query: current.query }));
+        setFilters((current) => ({ ...stored, query: current.query }));
       });
       return () => {
         alive = false;

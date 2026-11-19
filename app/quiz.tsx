@@ -14,7 +14,7 @@ import {
   posLabel,
 } from "../src/labels";
 import { getList, getLists, membershipsInList, type BookmarkList } from "../src/lists";
-import { loadFilters, saveFilters } from "../src/storage";
+import { loadFilters } from "../src/storage";
 import { colors } from "../src/theme";
 import { bold, extraBold, jaBody, semibold } from "../src/typography";
 import { defaultFilters, type Filters, type WordDetail, type WordListItem } from "../src/types";
@@ -126,9 +126,7 @@ export default function QuizScreen() {
       let alive = true;
       loadFilters().then((stored) => {
         if (!alive || phaseRef.current !== "setup") return;
-        const next = stored.cefr.length ? { ...stored, cefr: [] } : stored;
-        if (stored.cefr.length) void saveFilters(next);
-        setFilters({ ...next, query: paramQuery });
+        setFilters({ ...stored, query: paramQuery });
         setFiltersReady(true);
       });
       listPosValues()
