@@ -25,20 +25,45 @@ const JA_GLOSS_STOPLIST = new Set(["する", "した", "しない", "ない", "�
 const GLOSS_ATOMS =
   "(' ' || replace(replace(replace(replace(replace(replace(IFNULL(w.gloss_ja, ''), '；', ' '), ';', ' '), '／', ' '), '/', ' '), '、', ' '), '　', ' ') || ' ')";
 
+const LIKE_ESCAPE = "\\";
+const LIKE_SUFFIX = ` ESCAPE '${LIKE_ESCAPE}'`;
+
 function isJapaneseQuery(query: string): boolean {
   return /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u.test(query);
 }
 
+/** Escape `%`, `_`, and `\` for SQLite LIKE patterns. */
+export function escapeLikePattern(raw: string): string {
+  return raw
+    .replace(/\\/g, `${LIKE_ESCAPE}${LIKE_ESCAPE}`)
+    .replace(/%/g, `${LIKE_ESCAPE}%`)
+    .replace(/_/g, `${LIKE_ESCAPE}_`);
+}
+
 function englishRank(query: string): { sql: string; params: string[] } {
-  const needle = query.toLowerCase();
+  const literal = query.toLowerCase();
+  const likeNeedle = escapeLikePattern(literal);
   const sql = `CASE
       WHEN lower(w.lemma) = ? OR instr(lower(w.variants), '"' || ? || '"') > 0 THEN 0
-      WHEN lower(w.lemma) LIKE ? || '%' OR instr(lower(w.variants), '"' || ?) > 0 THEN 1
-      WHEN lower(w.lemma) LIKE '%' || ? OR instr(lower(w.lemma), '-' || ?) > 0 OR instr(lower(w.lemma), ' ' || ?) > 0 THEN 2
+      WHEN lower(w.lemma) LIKE ? || '%'${LIKE_SUFFIX} OR instr(lower(w.variants), '"' || ?) > 0 THEN 1
+      WHEN lower(w.lemma) LIKE '%' || ?${LIKE_SUFFIX} OR instr(lower(w.lemma), '-' || ?) > 0 OR instr(lower(w.lemma), ' ' || ?) > 0 THEN 2
       WHEN instr(lower(w.lemma), ?) > 0 OR instr(lower(w.variants), ?) > 0 THEN 3
       ELSE 4
     END`;
-  return { sql, params: Array(9).fill(needle) };
+  return {
+    sql,
+    params: [
+      literal,
+      literal,
+      likeNeedle,
+      literal,
+      likeNeedle,
+      literal,
+      literal,
+      literal,
+      literal,
+    ],
+  };
 }
 
 function japaneseRank(query: string): { sql: string; params: string[] } {
@@ -63,18 +88,17 @@ export function buildWordListSql(
   const query = filters.query.trim();
 
   if (query) {
-    const like = `%${query}%`;
+    const like = `%${escapeLikePattern(query)}%`;
+    const likeClause = `(w.lemma LIKE ?${LIKE_SUFFIX} OR IFNULL(w.gloss_ja, '') LIKE ?${LIKE_SUFFIX} OR IFNULL(w.gloss_en, '') LIKE ?${LIKE_SUFFIX} OR IFNULL(w.variants, '') LIKE ?${LIKE_SUFFIX})`;
     const ascii = /[A-Za-z]/.test(query);
     const useFts = ascii && options?.fts === true;
     if (useFts) {
       where.push(
-        "(w.lemma LIKE ? OR IFNULL(w.gloss_ja, '') LIKE ? OR IFNULL(w.gloss_en, '') LIKE ? OR IFNULL(w.variants, '') LIKE ? OR w.id IN (SELECT id FROM word_fts WHERE word_fts MATCH ?))"
+        `(${likeClause} OR w.id IN (SELECT id FROM word_fts WHERE word_fts MATCH ?))`
       );
       params.push(like, like, like, like, ftsQuery(query));
     } else {
-      where.push(
-        "(w.lemma LIKE ? OR IFNULL(w.gloss_ja, '') LIKE ? OR IFNULL(w.gloss_en, '') LIKE ? OR IFNULL(w.variants, '') LIKE ?)"
-      );
+      where.push(likeClause);
       params.push(like, like, like, like);
     }
   }
@@ -82,11 +106,6 @@ export function buildWordListSql(
   if (filters.bands.length) {
     where.push(`w.app_band IN (${filters.bands.map(() => "?").join(", ")})`);
     params.push(...filters.bands);
-  }
-
-  if (filters.cefr.length) {
-    where.push(`w.cefr IN (${filters.cefr.map(() => "?").join(", ")})`);
-    params.push(...filters.cefr);
   }
 
   if (filters.pos.length) {
